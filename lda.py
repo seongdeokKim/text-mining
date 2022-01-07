@@ -7,12 +7,12 @@ from utils.pipeline import Pipeline
 
 
 class LDAModal:
-    def __init__(self, min_collection_frequency,
+    def __init__(self, min_cf,
                  remove_top_words,
                  topic_number):
 
         self.mdl = tp.LDAModel(tw=tp.TermWeight.ONE,
-                               min_cf=min_collection_frequency,
+                               min_cf=min_cf,
                                rm_top=remove_top_words,
                                k=topic_number)
 
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     topic_number = 10
     save_path = './lda/lda.bin'
     top_n_words = 20
-    min_cf = 1
+    min_collection_frequency = 1
     remove_top_words = 5
 
     input_file = './data/abstract.txt'
@@ -134,7 +134,7 @@ if __name__ == '__main__':
         docs.append(new_doc)
 
 
-    lda_model = LDAModal(min_collection_frequency=min_cf,
+    lda_model = LDAModal(min_cf=min_collection_frequency,
                          remove_top_words=remove_top_words,
                          topic_number=topic_number)
 
