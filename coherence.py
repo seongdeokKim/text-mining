@@ -5,17 +5,23 @@ import tomotopy as tp
 from utils.pipeline import Pipeline
 
 
-def calculate_coherence(text_data, max_topic_number, top_n_words):
+def calculate_coherence(text_data,
+                        max_topic_number,
+                        top_n_words,
+                        coherence_path):
+    """calculate coherence based on four type scheme"""
 
-    # calculate coherence using preset
-    with open(coherence, 'w', encoding='utf-8') as fw:
-        fw.write('type\ttopic_number\tavg coherence\tcoherence_dist\n')
+    with open(coherence_path, 'w', encoding='utf-8') as fw:
 
+        # iterate calculation as number of topic increases
+        fw.write('scheme_type\ttopic_number\tavg coherence\tcoherence_dist\n')
         for topic_number in range(max_topic_number):
-            mdl = tp.LDAModel(tw=tp.TermWeight.ONE, min_cf=1, rm_top=5, k=topic_number + 1)
+            # declare LDAModel class
+            mdl = tp.LDAModel(tw=tp.TermWeight.ONE, min_cf=1, rm_top=5, k=topic_number+1)
             for doc in text_data:
                 mdl.add_doc(doc)
 
+            # model train
             mdl.burn_in = 100
             mdl.train(0)
             print('Num docs:', len(mdl.docs), ', Vocab size:', mdl.num_vocabs, ', Num words:', mdl.num_words)
@@ -25,6 +31,7 @@ def calculate_coherence(text_data, max_topic_number, top_n_words):
                 mdl.train(10)
                 print('Iteration: {}\tLog-likelihood: {}'.format(i, mdl.ll_per_word))
 
+            # calculate coherence of each scheme
             for preset in ('u_mass', 'c_uci', 'c_npmi', 'c_v'):
                 coh = tp.coherence.Coherence(mdl, coherence=preset, top_n=top_n_words)
                 avg_coherence = coh.get_score()
@@ -38,15 +45,15 @@ def calculate_coherence(text_data, max_topic_number, top_n_words):
 
                 fw.write(f'{preset}\t{topic_number + 1}\t{str(avg_coherence)[:9]}\t{coherence_per_topic}\n')
 
+
 if __name__ == '__main__':
 
     start = time.time()  # 시작 시간 저장
 
-    max_num_of_topic = 29
+    max_num_of_topic = 30
     top_n_words = 20
 
     input_file = './data/abstract.txt'
-
     coherence = './coherence_max_' + str(max_num_of_topic) + '.txt'
 
     # load documents on memory
@@ -73,7 +80,8 @@ if __name__ == '__main__':
 
     calculate_coherence(text_data=docs,
                         max_topic_number=max_num_of_topic,
-                        top_n_words=top_n_words)
+                        top_n_words=top_n_words,
+                        coherence_path=coherence)
 
     second = time.time() - start
     print("{}시간 ({}분)".format((second/3600), (second/60)))
