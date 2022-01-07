@@ -1,94 +1,117 @@
 import sys
 import time
 import tomotopy as tp
+from nltk import word_tokenize
 
 from utils.pipeline import Pipeline
 
 
-def execute_lda(text_data, topic_number, top_n_words, save_path):
+class LDAModal:
+    def __init__(self, min_collection_frequency,
+                 remove_top_words,
+                 topic_number):
 
-    mdl = tp.LDAModel(tw=tp.TermWeight.ONE,
-                      min_cf=1,
-                      rm_top=5,
-                      k=topic_number)
+        self.mdl = tp.LDAModel(tw=tp.TermWeight.ONE,
+                               min_cf=min_collection_frequency,
+                               rm_top=remove_top_words,
+                               k=topic_number)
 
-    docs, corpus = text_data
-    for doc in docs:
-        mdl.add_doc(doc)
+    def execute_lda(self, text_data,
+                    top_n_words,
+                    save_path,
+                    topic_dist_per_doc_path,
+                    words_per_topic_path):
 
+        docs, corpus = text_data
+        for doc in docs:
+            self.mdl.add_doc(doc)
 
-    # LDA model training
-    mdl.burn_in = 100
-    mdl.train(0)
-    print('Num docs:', len(mdl.docs), ', Vocab size:', mdl.num_vocabs, ', Num words:', mdl.num_words)
-    print('Removed top words:', mdl.removed_top_words)
-    print('Training...', file=sys.stderr, flush=True)
-    for i in range(0, 1500, 10):
-        mdl.train(10)
-        print('Iteration: {}\tLog-likelihood: {}'.format(i, mdl.ll_per_word))
-
-    print('Saving...', file=sys.stderr, flush=True)
-    mdl.save(save_path, True)
-
-
-    # extract topic distribution of each document
-    with open(topic_distribution_per_doc, 'w', encoding='utf-8') as fw:
-        fw.write('corpus\ttop_words\ttopic_dist\n')
-
-        for i, doc in enumerate(mdl.docs):
-            topic_dist = doc.get_topics(top_n=3)
-            topic_dist = [str(e[0]) + ', ' + str(e[1])[:8] for e in topic_dist]
-            topic_dist = '; '.join(topic_dist)
-
-            top_words_with_prob = doc.get_words()
-            top_words = [e[0] for e in top_words_with_prob]
-            top_words = ', '.join(top_words)
-
-            fw.write(f'{corpus[i]}\t{top_words}\t{topic_dist}\n')
+        self.train(save_path)
+        self.extract_topic_dist_per_doc(topic_dist_per_doc_path)
+        self.rank_top_words_per_topic(top_n_words, words_per_topic_path)
 
 
-    # extract candidates for auto topic labeling
-    extractor = tp.label.PMIExtractor(min_cf=10, min_df=5, max_len=5, max_cand=10000)
-    cands = extractor.extract(mdl)
+    def train(self, model_path):
+        """LDA model training"""
 
+        self.mdl.burn_in = 100
+        self.mdl.train(0)
+        print('Num docs:', len(self.mdl.docs))
+        print('Vocab size:', self.mdl.num_vocabs, ', Num words:', self.mdl.num_words)
+        print('Removed top words:', self.mdl.removed_top_words)
+        print('Training...', file=sys.stderr, flush=True)
+        for i in range(0, 1500, 10):
+            self.mdl.train(10)
+            print('Iteration: {}\tLog-likelihood: {}'.format(i, self.mdl.ll_per_word))
 
-    # ranking the candidates of labels for a specific topic
-    with open(words_per_topic, 'w', encoding='utf-8') as fw:
-        labeler = tp.label.FoRelevance(mdl, cands, min_df=5, smoothing=1e-2, mu=0.25)
+        print('Saving...', file=sys.stderr, flush=True)
+        self.mdl.save(model_path, True)
 
-        for k in range(mdl.k):
-            labels = ', '.join(label for label, score in labeler.get_topic_labels(k, top_n=20))
-            fw.write(f'### {k}\t{labels}\n')
+    def extract_topic_dist_per_doc(self, topic_dist_per_doc_path):
+        """extract topic distribution of each document"""
 
-            for word, prob in mdl.get_topic_words(k, top_n=top_n_words):
-                fw.write(f'{word}\t{prob}\n')
+        with open(topic_dist_per_doc_path, 'w', encoding='utf-8') as fw:
+            fw.write('corpus\ttop_words\ttopic_dist\n')
 
-def infer_unseen_document(model_file, unseen_words):
-    from nltk import word_tokenize
+            for i, doc in enumerate(self.mdl.docs):
+                topic_dist = doc.get_topics(top_n=3)
+                topic_dist = [str(e[0]) + ', ' + str(e[1])[:8] for e in topic_dist]
+                topic_dist = '; '.join(topic_dist)
 
-    mdl = tp.LDAModel.load(model_file)
+                top_words_with_prob = doc.get_words()
+                top_words = [e[0] for e in top_words_with_prob]
+                top_words = ', '.join(top_words)
 
-    doc_inst = mdl.make_doc(word_tokenize(unseen_words))
-    topic_dist, ll = mdl.infer(doc_inst)
-    print("Topic Distribution for Unseen Doc: ", topic_dist)
-    print("Log-likelihood of inference: ", ll)
-    print()
+                fw.write(f'{corpus[i]}\t{top_words}\t{topic_dist}\n')
+
+    def rank_top_words_per_topic(self, top_n_words, words_per_topic_path):
+        """extract probable words per topic"""
+
+        # extract candidates for auto topic labeling
+        extractor = tp.label.PMIExtractor(min_cf=10,
+                                          min_df=5,
+                                          max_len=5,
+                                          max_cand=10000)
+
+        cands = extractor.extract(self.mdl)
+
+        # ranking the candidates of labels for a specific topic
+        with open(words_per_topic_path, 'w', encoding='utf-8') as fw:
+            labeler = tp.label.FoRelevance(self.mdl, cands, min_df=5, smoothing=1e-2, mu=0.25)
+
+            for k in range(self.mdl.k):
+                labels = ', '.join(label for label, score in labeler.get_topic_labels(k, top_n=20))
+                fw.write(f'### {k}\t{labels}\n')
+
+                for word, prob in self.mdl.get_topic_words(k, top_n=top_n_words):
+                    fw.write(f'{word}\t{prob}\n')
+
+    def infer_unseen_document(self, saved_model, unseen_words):
+        '''infer unseen document through trained LDA model'''
+
+        mdl = tp.LDAModel.load(saved_model)
+
+        doc_inst = mdl.make_doc(word_tokenize(unseen_words))
+        topic_dist, ll = mdl.infer(doc_inst)
+        print("Topic Distribution for Unseen Doc: ", topic_dist)
+        print("Log-likelihood of inference: ", ll)
+        print()
 
 
 if __name__ == '__main__':
 
     start = time.time()  # 시작 시간 저장
 
-    topic_number = 29
+    topic_number = 10
     save_path = './lda/lda.bin'
     top_n_words = 20
+    min_cf = 1
+    remove_top_words = 5
 
-    # input_file = './data/reference_abstract_13630.txt'
     input_file = './data/abstract.txt'
 
-    coherence = './lda/coherence_max_k_' + str(topic_number) + '.txt'
     words_per_topic = './lda/words_per_topic_k_' + str(topic_number) + '.txt'
-    topic_distribution_per_doc = './lda/topic_distribution_per_doc_k_' + str(topic_number) + '.txt'
+    topic_dist_per_doc = './lda/topic_distribution_per_doc_k_' + str(topic_number) + '.txt'
 
 
     # load documents on memory
@@ -110,17 +133,21 @@ if __name__ == '__main__':
                 new_doc.append(token.lower().strip())
         docs.append(new_doc)
 
-    print('Running LDA')
-    execute_lda(text_data=(docs, corpus),
-                topic_number=topic_number,
-                top_n_words=top_n_words,
-                save_path=save_path)
 
+    lda_model = LDAModal(min_collection_frequency=min_cf,
+                         remove_top_words=remove_top_words,
+                         topic_number=topic_number)
+
+    lda_model.execute_lda(text_data=(docs, corpus),
+                          top_n_words=top_n_words,
+                          save_path=save_path,
+                          topic_dist_per_doc_path=topic_dist_per_doc,
+                          words_per_topic_path=words_per_topic)
 
     # test
     unseen_text='아사이 베리 블루베리 비슷하다'
-    infer_unseen_document(model_file=save_path,
-                          unseen_words=unseen_text)
+    lda_model.infer_unseen_document(saved_model=save_path,
+                                    unseen_words=unseen_text)
 
 
     second = time.time() - start
